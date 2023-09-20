@@ -1,0 +1,143 @@
+using System;
+using Ayehu.Sdk.ActivityCreation.Interfaces;
+using Ayehu.Sdk.ActivityCreation.Extension;
+using Ayehu.Sdk.ActivityCreation.Helpers;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Collections.Generic;
+using System.IO;
+
+namespace Ayehu.SharePoint
+{
+    public class GetList : IActivityAsync
+    {
+        public string Bearer_token = "";
+        private string endPoint = "https://graph.microsoft.com";
+        public string List_by = "";
+        public string drive_id = "";
+        public string item_id = "";
+        public string item_name = "";
+        public string item_path = "";
+
+        private bool omitJsonEmptyorNull = true;
+        private string contentType = "application/octet-stream"; 
+        private string httpMethod = "GET";
+        private string _uriBuilderPath;
+
+        private System.Collections.Generic.Dictionary<string, string> _headers;
+        private System.Collections.Generic.Dictionary<string, string> _queryStringArray;
+
+        private string uriBuilderPath
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(_uriBuilderPath))
+                {     if (List_by.Contains("drives"))
+                {
+                    _uriBuilderPath = string.Format("/v1.0/drives/{0}/items/{1}/content", drive_id, item_id);
+                    }
+                    else
+                    {
+          _uriBuilderPath = string.Format("/v1.0/{0}/{1}/drive/items/{2}/content",List_by,drive_id,item_id);
+                    }
+                }
+                return _uriBuilderPath;
+            }
+            set
+            {
+                this._uriBuilderPath = value;
+            }
+        }
+
+        private System.Collections.Generic.Dictionary<string, string> headers
+        {
+            get
+            {
+                if (_headers == null)
+                {
+                    _headers = new Dictionary<string, string>() { { "Authorization", "Bearer " + Bearer_token } };
+                }
+                return _headers;
+            }
+            set
+            {
+                this._headers = value;
+            }
+        }
+
+        private System.Collections.Generic.Dictionary<string, string> queryStringArray
+        {
+            get
+            {
+                if (_queryStringArray == null)
+                {
+                    _queryStringArray = new Dictionary<string, string>() { };
+                }
+                return _queryStringArray;
+            }
+            set
+            {
+                this._queryStringArray = value;
+            }
+        }
+
+        public async System.Threading.Tasks.Task<ICustomActivityResult> Execute()
+        {
+            try
+            {
+                HttpClient client = new HttpClient();
+                ServicePointManager.Expect100Continue = true;
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                ServicePointManager.ServerCertificateValidationCallback = new System.Net.Security.RemoteCertificateValidationCallback(AcceptAllCertifications);
+                UriBuilder UriBuilder = new UriBuilder(endPoint);
+                UriBuilder.Path = uriBuilderPath;
+                UriBuilder.Query = AyehuHelper.queryStringBuilder(queryStringArray);
+
+                // Create HttpRequestMessage with the updated content type
+                HttpRequestMessage myHttpRequestMessage = new HttpRequestMessage(new HttpMethod(httpMethod), UriBuilder.ToString());
+                myHttpRequestMessage.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(contentType));
+
+                foreach (KeyValuePair<string, string> headeritem in headers)
+                    client.DefaultRequestHeaders.Add(headeritem.Key, headeritem.Value);
+
+                HttpResponseMessage response = await client.SendAsync(myHttpRequestMessage);
+
+                switch (response.StatusCode)
+                {
+                    case HttpStatusCode.NoContent:
+                    case HttpStatusCode.Created:
+                    case HttpStatusCode.Accepted:
+                    case HttpStatusCode.OK:
+                        {
+                            // Read the binary content as bytes
+                            byte[] contentBytes = await response.Content.ReadAsByteArrayAsync();
+
+                            // Process the contentBytes as needed (e.g., save to a file)
+                            string filePath = string.Format(@"{0}/{1}", item_path, item_name);
+                            using (FileStream fileStream = File.Create(filePath))
+                            {
+                                await fileStream.WriteAsync(contentBytes, 0, contentBytes.Length);
+                            }
+                            return this.GenerateActivityResult("Success");
+
+                            //return this.GenerateActivityResult("File content saved successfully to: " + filePath);
+                        }
+                    default:
+                        {
+                            throw new Exception("Request failed with status code");
+                        }
+                }
+            }
+            catch (Exception ex)
+            {
+                return this.GenerateActivityResult("Error: " + ex.Message);
+            }
+        }
+
+        public bool AcceptAllCertifications(object sender, System.Security.Cryptography.X509Certificates.X509Certificate certification, System.Security.Cryptography.X509Certificates.X509Chain chain, System.Net.Security.SslPolicyErrors sslPolicyErrors)
+        {
+            return true;
+        }
+    }
+}
